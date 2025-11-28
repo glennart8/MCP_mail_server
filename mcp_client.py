@@ -2,11 +2,16 @@
 
 Kör: python mcp_client.py
 
-Agenten:
+Arkitektur (enligt MCP-principerna):
+- KLIENTEN (denna fil) = AI som bestämmer vad som ska göras
+- SERVERN (server.py) = Tools som utför arbete
+
+Klienten:
 1. Ansluter till MCP-servern
-2. Hämtar alla mail
-3. Klassificerar och hanterar varje mail
-4. Avslutar
+2. Hämtar alla mail (via tool)
+3. AI:n klassificerar varje mail (LOKALT i klienten)
+4. Anropar rätt handler (via tool)
+5. Avslutar
 """
 
 import sys
@@ -24,14 +29,17 @@ from mcp.client.stdio import stdio_client
 
 load_dotenv()
 
+# Sätt SEND_REAL_EMAILS miljövariabel för att styra om mail skickas
+# Default: False (dry-run läge)
+os.environ.setdefault("SEND_REAL_EMAILS", "false")
 
-class AutoAgent:
-    """Autonom agent som hanterar mail via MCP."""
+
+class MailAgent:
+    """Agent som använder AI för att klassificera mail och MCP-tools för att hantera dem."""
 
     def __init__(self, session):
         self.session = session
-        self.tools = []
-
+        # AI-modellen som är "hjärnan" i klienten
         self.llm = OpenAI(
             api_key=os.getenv("GEMINI_API_KEY"),
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -47,21 +55,31 @@ class AutoAgent:
         return str(result)
 
     def classify_email(self, email: dict) -> tuple[str, dict]:
-        """Klassificerar ett mail och returnerar (typ, extra_data)."""
+        """
+        AI:n klassificerar ett mail.
+        Detta är KLIENTENS beslut - inte serverns.
+        """
         prompt = f"""Klassificera detta mail. Svara ENDAST med JSON.
 
-Mail:
-Från: {email['from']}
-Ämne: {email['subject']}
-Innehåll: {email['body']}
+                Mail:
+                Från: {email['from']}
+                Ämne: {email['subject']}
+                Innehåll: {email['body']}
 
-Svara med:
-{{
-    "type": "support" | "sales" | "estimate" | "meeting" | "other",
-    "products": {{"produktnamn": antal}},  // om sales
-    "project_description": "...",  // om estimate
-    "meeting_time": "YYYY-MM-DDTHH:MM:SS"  // om meeting
-}}"""
+                Svara med:
+                {{
+                    "type": "support" | "sales" | "estimate" | "meeting" | "other",
+                    "product": "produktnamn om sales",
+                    "project_description": "beskrivning om estimate",
+                    "meeting_time": "YYYY-MM-DDTHH:MM:SS om meeting"
+                }}
+
+                Kategorier:
+                - support: Klagomål, reklamationer, problem
+                - sales: Frågor om produkter, priser, vill köpa något
+                - estimate: Vill ha materialberäkning för byggprojekt
+                - meeting: Vill boka möte
+                - other: Övrigt"""
 
         response = self.llm.chat.completions.create(
             model="gemini-2.0-flash",
@@ -79,83 +97,62 @@ Svara med:
         except:
             return "other", {}
 
-    async def handle_support(self, email: dict):
-        """Skapar supportärende."""
-        result = await self.call_tool("create_support_ticket", {
-            "from_email": email['from'],
-            "subject": email['subject'],
-            "body": email['body'],
-            "send_response": False  # Skicka inte mail i testläge
-        })
-        print(f"    → Supportärende skapat")
-        return result
-
-    async def handle_sales(self, email: dict, data: dict):
-        """Skapar offert."""
-        products = data.get("products", {})
-        if not products:
-            print(f"    → Inga produkter identifierade")
-            return
-
-        result = await self.call_tool("search_products", {"query": list(products.keys())[0]})
-        print(f"    → Produktsökning genomförd")
-        return result
-
-    async def handle_estimate(self, email: dict, data: dict):
-        """Beräknar material."""
-        description = data.get("project_description", email['body'])
-        result = await self.call_tool("estimate_materials", {
-            "project_description": description
-        })
-
-        # Parsa resultatet
-        try:
-            estimate = json.loads(result)
-            total = estimate.get("total_estimated_price", 0)
-            materials = estimate.get("materials", [])
-            print(f"    → Material beräknat: {len(materials)} produkter, {total} kr")
-        except:
-            print(f"    → Materialberäkning klar")
-
-        return result
-
-    async def handle_meeting(self, email: dict, data: dict):
-        """Hanterar mötesbokning."""
-        meeting_time = data.get("meeting_time")
-        if meeting_time:
-            print(f"    → Mötestid identifierad: {meeting_time}")
-        else:
-            print(f"    → Ingen mötestid angiven")
-        return None
 
     async def process_email(self, email: dict, index: int):
-        """Bearbetar ett mail."""
+        """Bearbetar ett mail: AI klassificerar, sedan anropas rätt tool."""
         print(f"\n[{index}] {email['subject']}")
         print(f"    Från: {email['from']}")
 
-        # Klassificera
+        # 1. AI klassificerar
         mail_type, data = self.classify_email(email)
         print(f"    → Typ: {mail_type.upper()}")
 
-        # Hantera baserat på typ
+        # 2. Anropa rätt handler via MCP-tool (servern utför arbete)
         if mail_type == "support":
-            await self.handle_support(email)
+            result = await self.call_tool("handle_support_email", {
+                "from_email": email['from'],
+                "subject": email['subject'],
+                "body": email['body']
+            })
+
         elif mail_type == "sales":
-            await self.handle_sales(email, data)
+            # Hämta produktsökterm från AI:ns klassificering
+            product = data.get("product", "produkt")
+            result = await self.call_tool("handle_sales_email", {
+                "from_email": email['from'],
+                "subject": email['subject'],
+                "product_query": product if product else "produkt"
+            })
+
         elif mail_type == "estimate":
-            await self.handle_estimate(email, data)
+            # Använd AI:ns extraherade projektbeskrivning eller hela body
+            description = data.get("project_description", email['body'])
+            result = await self.call_tool("handle_estimate_email", {
+                "from_email": email['from'],
+                "subject": email['subject'],
+                "project_description": description
+            })
+            
         elif mail_type == "meeting":
-            await self.handle_meeting(email, data)
+            meeting_time = data.get("meeting_time")
+            args = {
+                "from_email": email['from'],
+                "subject": email['subject']
+            }
+            if meeting_time:
+                args["meeting_time"] = meeting_time
+            result = await self.call_tool("handle_meeting_email", args)
+
         else:
-            print(f"    → Kräver manuell hantering")
+            print(f"Kräver manuell hantering")
 
     async def run(self):
         """Kör agenten."""
-        print("\n" + "="*60)
-        print("  AUTONOM MCP MAIL-AGENT")
-        print("="*60)
+        print("\n" + "======================================================")
+        print("  MCP MAIL-AGENT")
+        print("======================================================")
 
-        # Hämta mail via MCP
+        # Hämta mail via MCP-tool
         print("\nHämtar mail...")
         result = await self.call_tool("get_unread_emails")
 
@@ -176,13 +173,13 @@ Svara med:
         for i, email in enumerate(emails, 1):
             await self.process_email(email, i)
 
-        print("\n" + "="*60)
+        print("\n" + "======================================================")
         print(f"  KLART! Hanterade {len(emails)} mail")
-        print("="*60 + "\n")
+        print("======================================================")
 
 
 async def main():
-    """Startar den autonoma agenten."""
+    """Startar agenten."""
     server_params = StdioServerParameters(
         command="python",
         args=["server.py"],
@@ -198,8 +195,7 @@ async def main():
             print(f"MCP-server ansluten ({len(tools_response.tools)} verktyg)")
 
             # Kör agenten
-            agent = AutoAgent(session)
-            agent.tools = tools_response.tools
+            agent = MailAgent(session)
             await agent.run()
 
 

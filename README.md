@@ -1,67 +1,209 @@
 # MCP Mail Server - Bengtssons Trävaror
 
-En MCP-server (Model Context Protocol) för e-posthantering och affärssystem.
+En MCP-server (Model Context Protocol) för automatisk e-posthantering hos ett fiktivt byggvaruhus.
 
-## Funktioner (Tools)
+## Arkitektur
 
-| Tool | Beskrivning |
-|------|-------------|
-| `get_unread_emails` | Hämtar olästa e-postmeddelanden |
-| `create_support_ticket` | Skapar supportärende för klagomål |
-| `create_quote` | Genererar och skickar offert |
-| `estimate_materials` | Beräknar materialåtgång för byggprojekt |
-| `send_estimate_email` | Skickar materialuppskattning till kund |
-| `create_calendar_event` | Bokar möte i Google Calendar |
-| `send_email` | Skickar e-post via Gmail |
-| `search_products` | Söker i produktkatalogen |
-| `get_product_price` | Hämtar pris för specifik produkt |
-| `check_followups` | Kontrollerar offerter som behöver uppföljning |
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              MCP-ARKITEKTUR                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌─────────────────────────┐         ┌─────────────────────────────────┐   │
+│   │      MCP-KLIENT         │         │         MCP-SERVER              │   │
+│   │     (mcp_client.py)     │         │        (server.py)              │   │
+│   │                         │         │                                 │   │
+│   │  "Hjärnan" - BESTÄMMER  │  stdio  │  "Händerna" - UTFÖR arbete     │   │
+│   │                         │ ◄─────► │                                 │   │
+│   │  • AI-klassificering    │   MCP   │  • Hämta mail                   │   │
+│   │  • Beslut om åtgärd     │ proto-  │  • Skicka svar                  │   │
+│   │  • Anropar rätt tool    │   col   │  • Logga ärenden                │   │
+│   │                         │         │  • Beräkna material             │   │
+│   └─────────────────────────┘         └─────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-## Resurser (Resources)
+## Flödesdiagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           MAIL-HANTERINGSFLÖDE                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+    KLIENT (AI-beslut)                         SERVER (Tool-exekvering)
+    ══════════════════                         ═══════════════════════
+
+    ┌─────────────┐
+    │   START     │
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐      get_unread_emails()      ┌─────────────────┐
+    │ Hämta mail  │ ─────────────────────────────►│ Returnerar JSON │
+    └──────┬──────┘                               │ med alla mail   │
+           │◄─────────────────────────────────────└─────────────────┘
+           │
+           ▼
+    ┌─────────────────┐
+    │  För varje mail │
+    └────────┬────────┘
+             │
+             ▼
+    ┌─────────────────────┐
+    │  AI KLASSIFICERAR   │  (Gemini 2.0 Flash)
+    │                     │
+    │  Kategorier:        │
+    │  • support          │
+    │  • sales            │
+    │  • estimate         │
+    │  • meeting          │
+    │  • other            │
+    └─────────┬───────────┘
+              │
+              ▼
+    ┌─────────────────────┐
+    │ Anropa rätt handler │
+    └─────────┬───────────┘
+              │
+     ┌────────┴────────┬─────────────────┬─────────────────┐
+     ▼                 ▼                 ▼                 ▼
+┌─────────┐      ┌─────────┐      ┌─────────────┐   ┌─────────┐
+│ support │      │  sales  │      │  estimate   │   │ meeting │
+└────┬────┘      └────┬────┘      └──────┬──────┘   └────┬────┘
+     │                │                  │               │
+     ▼                ▼                  ▼               ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              SERVER TOOLS                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  handle_support_email()    handle_sales_email()    handle_estimate_email()  │
+│  ├─ Logga klagomål        ├─ Sök produkter        ├─ AI beräknar material  │
+│  ├─ AI genererar svar     ├─ Formatera svar       ├─ Beräkna priser        │
+│  └─ Skicka mail           └─ Skicka mail          └─ Skicka mail           │
+│                                                                             │
+│  handle_meeting_email()                                                     │
+│  ├─ Notera önskad tid                                                       │
+│  └─ Skicka bekräftelse                                                      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+              │
+              ▼
+    ┌─────────────────┐
+    │ Nästa mail...   │
+    └─────────────────┘
+```
+
+## Filstruktur
+
+```
+MCP-Mail-Server/
+├── server.py              # MCP-server med tools och resources
+├── mcp_client.py          # Autonom klient med AI-klassificering
+├── core/
+│   ├── __init__.py
+│   ├── agents.py          # AI-agenter (ComplaintAgent, SalesAgent)
+│   ├── autoresponder.py   # Gmail API-integration
+│   ├── complaints.py      # Klagomålsloggning
+│   ├── products.py        # Produktkatalog
+│   └── test_data.py       # Testmail för demonstration
+├── logs/
+│   └── complaints.json    # Loggade klagomål
+├── credentials.json       # Google OAuth (ej i repo)
+├── .env                   # API-nycklar (ej i repo)
+└── requirements.txt
+```
+
+## Tools (server.py)
+
+| Tool | Beskrivning | Input |
+|------|-------------|-------|
+| `get_unread_emails` | Hämtar alla olästa mail från inkorgen | - |
+| `handle_support_email` | Hanterar klagomål: loggar, genererar AI-svar, skickar | `from_email`, `subject`, `body` |
+| `handle_sales_email` | Hanterar produktförfrågningar: söker, formaterar, skickar | `from_email`, `subject`, `product_query` |
+| `handle_estimate_email` | Hanterar materialberäkningar: AI-beräkning, prissättning, skickar | `from_email`, `subject`, `project_description` |
+| `handle_meeting_email` | Hanterar mötesförfrågningar: noterar tid, skickar bekräftelse | `from_email`, `subject`, `meeting_time` (valfri) |
+
+## Resources (server.py)
 
 | Resource | Beskrivning |
 |----------|-------------|
-| `products://catalog` | Hela produktkatalogen |
-| `logs://complaints` | Registrerade klagomål |
-| `logs://quotes` | Skickade offerter |
+| `products://catalog` | Produktkatalog med priser och dimensioner |
+| `logs://complaints` | JSON-logg över registrerade klagomål |
+
+## Core-moduler
+
+### agents.py
+| Klass | Metod | Beskrivning |
+|-------|-------|-------------|
+| `BaseAgent` | `run_llm()` | Kör prompt mot Gemini, returnerar text |
+| `BaseAgent` | `run_llm_json()` | Kör prompt, returnerar JSON |
+| `ComplaintAgent` | `write_response_to_complaint()` | Genererar svar på klagomål |
+| `SalesAgent` | `estimate_materials_json()` | Beräknar materialåtgång för byggprojekt |
+
+### complaints.py
+| Klass | Metod | Beskrivning |
+|-------|-------|-------------|
+| `ComplaintsSystem` | `log_complaint()` | Sparar klagomål till JSON-fil |
+| `ComplaintsSystem` | `complaints` | Property som returnerar alla klagomål |
+
+### autoresponder.py
+| Klass | Metod | Beskrivning |
+|-------|-------|-------------|
+| `AutoResponder` | `_send_email()` | Skickar mail via Gmail API |
+
+### products.py
+| Konstant | Beskrivning |
+|----------|-------------|
+| `PRODUCTS` | Dict med produkter: `{namn: (pris, dimension)}` |
 
 ## Installation
 
 ```bash
-# Klona repot
+# Klona och installera
 cd MCP-Mail-Server
-
-# Skapa virtuell miljö
 python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
-
-# Installera beroenden
+venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 
-# Kopiera och konfigurera miljövariabler
-copy .env.example .env
-# Redigera .env med dina API-nycklar
+# Konfigurera
+cp .env.example .env
+# Redigera .env med din GEMINI_API_KEY
 ```
 
-## Google API Setup
+## Konfiguration
 
-1. Gå till [Google Cloud Console](https://console.cloud.google.com/)
-2. Skapa ett projekt
-3. Aktivera Gmail API och Google Calendar API
-4. Skapa OAuth 2.0-credentials (Desktop app)
-5. Ladda ner `credentials.json` och placera i projektmappen
+### Miljövariabler (.env)
+```
+GEMINI_API_KEY=din-api-nyckel
+SENDER_EMAIL=din@email.com
+SEND_REAL_EMAILS=false         # true för att skicka riktiga mail
+```
 
-## Konfigurera i Claude Desktop
+### Google OAuth (för Gmail-utskick)
+1. Skapa projekt i [Google Cloud Console](https://console.cloud.google.com/)
+2. Aktivera Gmail API
+3. Skapa OAuth 2.0-credentials (Desktop app)
+4. Ladda ner `credentials.json` till projektmappen
 
+## Användning
+
+### Kör den autonoma klienten
+```bash
+python mcp_client.py
+```
+
+Klienten startar MCP-servern automatiskt, hämtar mail, klassificerar och hanterar dem.
+
+### Använd med Claude Desktop
 Lägg till i `claude_desktop_config.json`:
-
 ```json
 {
   "mcpServers": {
     "bengtssons-travaror": {
       "command": "python",
-      "args": ["c:/Users/henri/source/repos/MCP-Mail-Server/server.py"],
+      "args": ["server.py"],
+      "cwd": "c:/Users/henri/source/repos/Python/MCP-Mail-Server",
       "env": {
         "GEMINI_API_KEY": "din-api-nyckel"
       }
@@ -70,49 +212,20 @@ Lägg till i `claude_desktop_config.json`:
 }
 ```
 
-## Användning
-
-Starta servern direkt:
-```bash
-python server.py
-```
-
-Eller använd via en MCP-klient som Claude Desktop.
-
-## Exempel
-
-### Klassificera och hantera mail
-```
-> Hämta nya mail och klassificera dem
-> Skapa en offert för kund@example.com med 10 st plywood_12mm och 5 st regel_45x95_3m
-```
-
-### Materialberäkning
-```
-> Beräkna materialåtgång för en altan på 30 kvm
-> Skicka uppskattningen till kund@example.com
-```
-
-### Produktsökning
-```
-> Sök efter produkter som innehåller "isolering"
-> Vad kostar plywood_15mm?
-```
-
-## Struktur
+## MCP-principen
 
 ```
-MCP-Mail-Server/
-├── server.py           # MCP-server med alla tools
-├── agents.py           # AI-agenter (Gemini)
-├── products.py         # Produktkatalog
-├── sales.py            # Försäljningssystem
-├── complaints.py       # Klagomålshantering
-├── mail.py             # E-postklient
-├── autoresponder.py    # Gmail API-integration
-├── calendar_handler.py # Google Calendar-integration
-├── logs/               # Loggfiler
-├── requirements.txt
-├── .env.example
-└── README.md
+┌────────────────────────────────────────────────────────────────┐
+│                                                                │
+│   KLIENT = AI som BESTÄMMER           SERVER = Tools som GÖR   │
+│                                                                │
+│   • Klassificering sker i klienten    • Inga AI-beslut         │
+│   • Väljer vilken tool att anropa     • Utför instruktioner    │
+│   • Styr hela arbetsflödet            • Returnerar resultat    │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
 ```
+
+Denna arkitektur följer MCP-standarden där:
+- **Servern** exponerar verktyg (tools) och data (resources)
+- **Klienten** innehåller AI-logiken som fattar beslut

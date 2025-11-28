@@ -1,11 +1,6 @@
-"""E-postklient med fake inbox för demonstration.
+"""Testdata för demonstration av MCP-servern."""
 
-Innehåller påhittade testmail för att demonstrera MCP-serverns funktionalitet.
-Alla svar skickas till avsändaren (from-fältet).
-"""
-
-# Testinkorg med varierade mail (alla från henrikpilback@gmail.com för testning)
-INBOX = [
+FAKE_INBOX = [
     {
         "from": "henrikpilback@gmail.com",
         "subject": "Offertförfrågan - Altanbygge",
@@ -76,28 +71,3 @@ Har ni OSB-skivor också?
 /Anders"""
     },
 ]
-
-
-class EmailClient:
-    """Enkel e-postklient som hämtar mail från inkorgen."""
-
-    def __init__(self):
-        self.inbox = INBOX.copy()
-
-    def get_new_emails(self) -> list:
-        """Hämtar alla nya e-postmeddelanden (tömmer inkorgen)."""
-        emails = self.inbox.copy()
-        self.inbox.clear()
-        return emails
-
-    def peek_emails(self) -> list:
-        """Tittar på inkorgen utan att ta bort mail."""
-        return self.inbox.copy()
-
-    def add_test_email(self, from_addr: str, subject: str, body: str):
-        """Lägger till ett testmail i inkorgen."""
-        self.inbox.append({
-            "from": from_addr,
-            "subject": subject,
-            "body": body
-        })
