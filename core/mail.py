@@ -85,10 +85,10 @@ class EmailClient:
         self.inbox = INBOX.copy()
 
     def get_new_emails(self) -> list:
-        """Hämtar nya e-postmeddelanden (tar bort dem från inkorgen)."""
-        if self.inbox:
-            return [self.inbox.pop(0)]
-        return []
+        """Hämtar alla nya e-postmeddelanden (tömmer inkorgen)."""
+        emails = self.inbox.copy()
+        self.inbox.clear()
+        return emails
 
     def peek_emails(self) -> list:
         """Tittar på inkorgen utan att ta bort mail."""
