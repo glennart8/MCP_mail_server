@@ -105,10 +105,12 @@ MCP-Mail-Server/
 │   ├── agents.py          # AI-agenter (ComplaintAgent, SalesAgent)
 │   ├── autoresponder.py   # Gmail API-integration
 │   ├── complaints.py      # Klagomålsloggning
+│   ├── conversations.py   # Konversationshistorik per kund
 │   ├── products.py        # Produktkatalog
 │   └── test_data.py       # Testmail för demonstration
 ├── logs/
 │   └── complaints.json    # Loggade klagomål
+├── conversations.json     # Kundhistorik (ej i repo, GDPR)
 ├── credentials.json       # Google OAuth (ej i repo)
 ├── .env                   # API-nycklar (ej i repo)
 └── requirements.txt
@@ -138,8 +140,15 @@ MCP-Mail-Server/
 |-------|-------|-------------|
 | `BaseAgent` | `run_llm()` | Kör prompt mot Gemini, returnerar text |
 | `BaseAgent` | `run_llm_json()` | Kör prompt, returnerar JSON |
-| `ComplaintAgent` | `write_response_to_complaint()` | Genererar svar på klagomål |
+| `ComplaintAgent` | `write_response_to_complaint()` | Genererar svar på klagomål (med konversationshistorik) |
 | `SalesAgent` | `estimate_materials_json()` | Beräknar materialåtgång för byggprojekt |
+
+### conversations.py
+| Funktion | Beskrivning |
+|----------|-------------|
+| `add_message()` | Sparar ett meddelande i historiken |
+| `get_history()` | Hämtar konversationshistorik för en kund |
+| `format_history_for_prompt()` | Formaterar historik för AI-prompten |
 
 ### complaints.py
 | Klass | Metod | Beskrivning |
@@ -177,6 +186,7 @@ cp .env.example .env
 ```
 GEMINI_API_KEY=din-api-nyckel
 SENDER_EMAIL=din@email.com
+USE_GMAIL=false                # true för att läsa från riktig Gmail
 SEND_REAL_EMAILS=false         # true för att skicka riktiga mail
 ```
 
@@ -190,7 +200,14 @@ SEND_REAL_EMAILS=false         # true för att skicka riktiga mail
 
 ### Kör den autonoma klienten
 ```bash
+# Kör en gång
 python mcp_client.py
+
+# Kör kontinuerligt (var 5:e minut)
+python mcp_client.py --loop
+
+# Kör kontinuerligt med eget intervall (var 60:e minut)
+python mcp_client.py --loop 60
 ```
 
 Klienten startar MCP-servern automatiskt, hämtar mail, klassificerar och hanterar dem.
