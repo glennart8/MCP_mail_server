@@ -104,12 +104,9 @@ MCP-Mail-Server/
 │   ├── __init__.py
 │   ├── agents.py          # AI-agenter (ComplaintAgent, SalesAgent)
 │   ├── autoresponder.py   # Gmail API-integration
-│   ├── complaints.py      # Klagomålsloggning
 │   ├── conversations.py   # Konversationshistorik per kund
 │   ├── products.py        # Produktkatalog
 │   └── test_data.py       # Testmail för demonstration
-├── logs/
-│   └── complaints.json    # Loggade klagomål
 ├── conversations.json     # Kundhistorik (ej i repo, GDPR)
 ├── credentials.json       # Google OAuth (ej i repo)
 ├── .env                   # API-nycklar (ej i repo)
@@ -131,7 +128,6 @@ MCP-Mail-Server/
 | Resource | Beskrivning |
 |----------|-------------|
 | `products://catalog` | Produktkatalog med priser och dimensioner |
-| `logs://complaints` | JSON-logg över registrerade klagomål |
 
 ## Core-moduler
 
@@ -149,12 +145,6 @@ MCP-Mail-Server/
 | `add_message()` | Sparar ett meddelande i historiken |
 | `get_history()` | Hämtar konversationshistorik för en kund |
 | `format_history_for_prompt()` | Formaterar historik för AI-prompten |
-
-### complaints.py
-| Klass | Metod | Beskrivning |
-|-------|-------|-------------|
-| `ComplaintsSystem` | `log_complaint()` | Sparar klagomål till JSON-fil |
-| `ComplaintsSystem` | `complaints` | Property som returnerar alla klagomål |
 
 ### autoresponder.py
 | Klass | Metod | Beskrivning |

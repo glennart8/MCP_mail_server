@@ -18,9 +18,6 @@ credentialsNEWMAIL.json
 token.pickle
 token_calendar.pickle
 
-# Logs (kan innehålla känslig data)
-logs/
-
 # Konversationshistorik (GDPR)
 conversations.json
 

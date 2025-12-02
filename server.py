@@ -13,7 +13,6 @@ import os
 import json
 from mcp.server.fastmcp import FastMCP
 
-from core.complaints import ComplaintsSystem
 from core.autoresponder import GmailClient
 from core.products import PRODUCTS
 from core.test_data import FAKE_INBOX
@@ -27,7 +26,6 @@ USE_GMAIL = os.environ.get("USE_GMAIL", "false").lower() == "true"
 mcp = FastMCP("bengtssons-travaror")
 
 # Initiera system
-complaints_system = ComplaintsSystem()
 _fake_inbox = FAKE_INBOX.copy()  # Kopia som töms vid hämtning
 
 # Lazy-loading för Gmail API
@@ -50,12 +48,6 @@ def get_product_catalog() -> str:
         dim_str = f"{dimension} m/kvm" if dimension else "styck"
         catalog_lines.append(f"{name}: {price} kr ({dim_str})")
     return "\n".join(catalog_lines)
-
-
-@mcp.resource("logs://complaints")
-def get_complaints_log() -> str:
-    """Returnerar alla registrerade klagomål."""
-    return json.dumps(complaints_system.complaints, ensure_ascii=False, indent=2)
 
 
 # ==================== TOOLS ====================
@@ -94,10 +86,9 @@ def get_unread_emails() -> str:
 def handle_support_email(from_email: str, subject: str, body: str) -> str:
     """
     Hanterar ett supportärende/klagomål komplett:
-    1. Skapar supportärende
+    1. Sparar kundens meddelande i historik
     2. Genererar AI-svar (med konversationshistorik)
     3. Skickar svar till kunden
-    4. Sparar konversationen
 
     Returns:
         Bekräftelse på vad som gjordes
@@ -107,16 +98,13 @@ def handle_support_email(from_email: str, subject: str, body: str) -> str:
     # 1. Spara kundens meddelande i historik
     add_message(from_email, "customer", body, subject)
 
-    # 2. Skapa ärende
+    # 2. Hämta tidigare konversation och generera svar
     email = {"from": from_email, "subject": subject, "body": body}
-    complaints_system.log_complaint(email)
-
-    # 3. Hämta tidigare konversation och generera svar
     history = format_history_for_prompt(from_email)
     agent = ComplaintAgent()
     response_body = agent.write_response_to_complaint(email, history)
 
-    # 4. Skicka svar (om aktiverat)
+    # 3. Skicka svar (om aktiverat)
     if SEND_EMAILS:
         try:
             gmail = get_gmail_client()
