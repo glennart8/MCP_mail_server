@@ -82,32 +82,45 @@ class SalesAgent(BaseAgent):
     """Agent som beräknar materialåtgång för byggprojekt."""
 
     def estimate_materials_json(self, description: str) -> dict | None:
-        """Beräknar materialåtgång för ett byggprojekt."""
-        prompt = f"""
-        Du är en byggnadsteknisk assistent. Läs följande beskrivning av ett byggprojekt
-        och uppskatta materialåtgången baserat på standardbyggteknik i Sverige.
+        """Beräknar materialåtgång för ett byggprojekt, grupperat per byggdel."""
+        prompt = f"""Du är en byggnadsteknisk assistent. Läs följande beskrivning av ett byggprojekt
+och uppskatta materialåtgången baserat på standardbyggteknik i Sverige.
 
-        Beskrivning: {description}
+Beskrivning: {description}
 
-        Använd produktsortimentet: {list(PRODUCTS.keys())}
+Använd produktsortimentet: {list(PRODUCTS.keys())}
 
-        Följ dessa riktlinjer:
-        - Ytterväggar: regel_45x145 cc600 + bräda_22x145 panel
-        - Plywood: 1 skiva per 1.2 m² väggyta
-        - Isolering: väggyta per förpackning enligt sortimentet
-        - Undertak: råspontlucka enligt sortimentet
-        - Inkludera endast produkter som behövs
+Följ dessa riktlinjer:
+- Ytterväggar: regel_45x145 cc600 + isolering + vindskydd
+- Innerväggar: regel_45x70 eller 45x95 + gipsskiva
+- Tak: takläkt + råspont + takpapp + isolering
+- Golv: golvreglar + golvspånskiva eller plywood
+- Inkludera endast produkter som behövs för projektet
 
-        **Viktigt:** Returnera endast ett JSON-objekt med format:
-        Exempel:
-        {{
-            "regel_45x145_3m": 20,
-            "bräda_22x145_3m": 50,
-            "plywood_12mm": 10,
-            "isolering_mineralull_145mm": 5,
-            "råspontlucka_21x95": 15
-        }}
+**Viktigt:** Returnera ett JSON-objekt grupperat per byggdel.
+Exempel för ett garage:
+{{
+    "Stomme/Väggar": {{
+        "regel_45x145_3m": 24,
+        "plywood_12mm": 15,
+        "isolering_mineralull_145mm": 8
+    }},
+    "Tak": {{
+        "takläkt_25x38_3m": 30,
+        "råspont_21x95_3m": 25,
+        "takpapp_rulle": 2,
+        "isolering_mineralull_95mm": 6
+    }},
+    "Golv": {{
+        "regel_45x145_3m": 12,
+        "golvspånskiva_22mm": 10
+    }},
+    "Fästdon": {{
+        "spiklåda_70mm": 2,
+        "skruvlåda_trä_5x70": 3
+    }}
+}}
 
-        Inga förklaringar, inga listor, inga kommentarer, endast JSON.
-        """
+Använd lämpliga kategorier beroende på projekt (t.ex. Stomme/Väggar, Tak, Golv, Fästdon, Isolering, Panel/Fasad).
+Inga förklaringar, inga kommentarer, endast JSON."""
         return self.run_llm_json(prompt)

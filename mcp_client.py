@@ -1,6 +1,8 @@
 """Autonom MCP-klient som hanterar alla mail automatiskt.
 
-Kör: python mcp_client.py
+Kör: python mcp_client.py              (en gång)
+     python mcp_client.py --loop       (kontinuerligt, var 5:e minut)
+     python mcp_client.py --loop 60    (kontinuerligt, var 60:e minut)
 
 Arkitektur (enligt MCP-principerna):
 - KLIENTEN (denna fil) = AI som bestämmer vad som ska göras
@@ -11,7 +13,7 @@ Klienten:
 2. Hämtar alla mail (via tool)
 3. AI:n klassificerar varje mail (LOKALT i klienten)
 4. Anropar rätt handler (via tool)
-5. Avslutar
+5. Avslutar (eller väntar och upprepar om --loop)
 """
 
 import sys
@@ -19,6 +21,8 @@ import io
 import os
 import json
 import asyncio
+import argparse
+from datetime import datetime
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -29,9 +33,11 @@ from mcp.client.stdio import stdio_client
 
 load_dotenv()
 
-# Sätt SEND_REAL_EMAILS miljövariabel för att styra om mail skickas
-# Default: False (dry-run läge)
-os.environ.setdefault("SEND_REAL_EMAILS", "false")
+# Miljövariabler laddas från .env och ärvs av servern
+# USE_GMAIL=true för att läsa från riktig Gmail
+# SEND_REAL_EMAILS=true för att skicka riktiga svar
+print(f"USE_GMAIL={os.getenv('USE_GMAIL', 'false')}")
+print(f"SEND_REAL_EMAILS={os.getenv('SEND_REAL_EMAILS', 'false')}")
 
 
 class MailAgent:
@@ -55,10 +61,6 @@ class MailAgent:
         return str(result)
 
     def classify_email(self, email: dict) -> tuple[str, dict]:
-        """
-        AI:n klassificerar ett mail.
-        Detta är KLIENTENS beslut - inte serverns.
-        """
         prompt = f"""Klassificera detta mail. Svara ENDAST med JSON.
 
                 Mail:
@@ -109,30 +111,28 @@ class MailAgent:
 
         # 2. Anropa rätt handler via MCP-tool (servern utför arbete)
         if mail_type == "support":
-            result = await self.call_tool("handle_support_email", {
+            await self.call_tool("handle_support_email", {
                 "from_email": email['from'],
                 "subject": email['subject'],
                 "body": email['body']
             })
 
         elif mail_type == "sales":
-            # Hämta produktsökterm från AI:ns klassificering
             product = data.get("product", "produkt")
-            result = await self.call_tool("handle_sales_email", {
+            await self.call_tool("handle_sales_email", {
                 "from_email": email['from'],
                 "subject": email['subject'],
                 "product_query": product if product else "produkt"
             })
 
         elif mail_type == "estimate":
-            # Använd AI:ns extraherade projektbeskrivning eller hela body
             description = data.get("project_description", email['body'])
-            result = await self.call_tool("handle_estimate_email", {
+            await self.call_tool("handle_estimate_email", {
                 "from_email": email['from'],
                 "subject": email['subject'],
                 "project_description": description
             })
-            
+
         elif mail_type == "meeting":
             meeting_time = data.get("meeting_time")
             args = {
@@ -141,10 +141,7 @@ class MailAgent:
             }
             if meeting_time:
                 args["meeting_time"] = meeting_time
-            result = await self.call_tool("handle_meeting_email", args)
-
-        else:
-            print(f"Kräver manuell hantering")
+            await self.call_tool("handle_meeting_email", args)
 
     async def run(self):
         """Kör agenten."""
@@ -178,8 +175,8 @@ class MailAgent:
         print("======================================================")
 
 
-async def main():
-    """Startar agenten."""
+async def run_once():
+    """Kör agenten en gång."""
     server_params = StdioServerParameters(
         command="python",
         args=["server.py"],
@@ -197,6 +194,34 @@ async def main():
             # Kör agenten
             agent = MailAgent(session)
             await agent.run()
+
+
+async def main():
+    """Startar agenten med eller utan loop."""
+    parser = argparse.ArgumentParser(description="MCP Mail Agent")
+    parser.add_argument("--loop", nargs="?", const=5, type=int, metavar="MINUTER",
+                        help="Kör kontinuerligt (standard: var 5:e minut)")
+    args = parser.parse_args()
+
+    if args.loop:
+        interval_minutes = args.loop
+        print(f"🔄 Startar i loop-läge (var {interval_minutes}:e minut)")
+        print("   Tryck Ctrl+C för att avsluta\n")
+
+        while True:
+            try:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"\n⏰ [{timestamp}] Kollar mail...")
+                await run_once()
+
+                print(f"\n💤 Väntar {interval_minutes} minuter till nästa körning...")
+                await asyncio.sleep(interval_minutes * 60)
+
+            except KeyboardInterrupt:
+                print("\n\n👋 Avslutar...")
+                break
+    else:
+        await run_once()
 
 
 if __name__ == "__main__":

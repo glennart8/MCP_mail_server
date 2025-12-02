@@ -14,28 +14,29 @@ import json
 from mcp.server.fastmcp import FastMCP
 
 from core.complaints import ComplaintsSystem
-from core.autoresponder import AutoResponder
+from core.autoresponder import GmailClient
 from core.products import PRODUCTS
 from core.test_data import FAKE_INBOX
 
-# Läs en gång vid uppstart
+# Konfiguration via miljövariabler
 SEND_EMAILS = os.environ.get("SEND_REAL_EMAILS", "false").lower() == "true"
+USE_GMAIL = os.environ.get("USE_GMAIL", "false").lower() == "true"
 
 # Skapa MCP-server
 mcp = FastMCP("bengtssons-travaror")
 
 # Initiera system
 complaints_system = ComplaintsSystem()
-_inbox = FAKE_INBOX.copy()  # Kopia som töms vid hämtning
+_fake_inbox = FAKE_INBOX.copy()  # Kopia som töms vid hämtning
 
 # Lazy-loading för Gmail API
-_autoresponder = None
+_gmail_client = None
 
-def get_autoresponder():
-    global _autoresponder
-    if _autoresponder is None:
-        _autoresponder = AutoResponder()
-    return _autoresponder
+def get_gmail_client():
+    global _gmail_client
+    if _gmail_client is None:
+        _gmail_client = GmailClient()
+    return _gmail_client
 
 
 # ==================== RESOURCES ====================
@@ -67,10 +68,22 @@ def get_unread_emails() -> str:
     - from: avsändarens e-postadress
     - subject: ämnesrad
     - body: meddelandetext
+
+    Använder Gmail API om USE_GMAIL=true, annars testdata.
     """
-    global _inbox
-    emails = _inbox.copy()
-    _inbox.clear()
+    global _fake_inbox
+
+    if USE_GMAIL:
+        gmail = get_gmail_client()
+        emails = gmail.get_unread_emails()
+        # Markera som lästa
+        for email in emails:
+            if 'id' in email:
+                gmail.mark_as_read(email['id'])
+    else:
+        emails = _fake_inbox.copy()
+        _fake_inbox.clear()
+
     if not emails:
         return json.dumps({"message": "Inga nya mail"}, ensure_ascii=False)
     return json.dumps(emails, ensure_ascii=False, indent=2)
@@ -100,8 +113,8 @@ def handle_support_email(from_email: str, subject: str, body: str) -> str:
     # 3. Skicka svar (om aktiverat)
     if SEND_EMAILS:
         try:
-            auto = get_autoresponder()
-            auto._send_email(from_email, f"Re: {subject}", response_body)
+            gmail = get_gmail_client()
+            gmail._send_email(from_email, f"Re: {subject}", response_body)
             return f"Supportärende hanterat för {from_email}: Ärende skapat + svar skickat"
         except Exception as e:
             return f"Supportärende skapat men kunde inte skicka svar: {e}"
@@ -148,22 +161,22 @@ def handle_sales_email(from_email: str, subject: str, product_query: str) -> str
 
     response_body = f"""Hej!
 
-                Tack för din förfrågan om {product_query}.
+Tack för din förfrågan om {product_query}.
 
-                Här är vårt sortiment:
+Här är vårt sortiment:
 
-                {product_text}
+{product_text}
 
-                Kontakta oss gärna för offert!
+Kontakta oss gärna för offert!
 
-                Vänliga hälsningar,
-                Bengtssons Trävaror"""
+Vänliga hälsningar,
+Bengtssons Trävaror"""
 
     # 3. Skicka svar (om aktiverat)
     if SEND_EMAILS:
         try:
-            auto = get_autoresponder()
-            auto._send_email(from_email, f"Re: {subject}", response_body)
+            gmail = get_gmail_client()
+            gmail._send_email(from_email, f"Re: {subject}", response_body)
             return f"Försäljningsförfrågan hanterad för {from_email}: {len(matches)} produkter hittades, svar skickat"
         except Exception as e:
             return f"Kunde inte skicka svar: {e}"
@@ -194,35 +207,48 @@ def handle_estimate_email(from_email: str, subject: str, project_description: st
     if not estimated:
         return f"Kunde inte beräkna material för: {project_description}"
 
-    # 2. Beräkna priser och formatera
+    # 2. Beräkna priser och formatera per kategori
     total = 0
     lines = ["Här är vår uppskattning av materialbehov:\n"]
 
-    for product, qty in estimated.items():
-        if product in PRODUCTS:
-            price = PRODUCTS[product][0]
-            line_total = price * qty
-            total += line_total
-            name = product.replace('_', ' ')
-            lines.append(f"• {name}: {qty} st à {price} kr = {line_total} kr")
+    for category, products in estimated.items():
+        # Hantera både ny grupperad struktur och gammal platt struktur
+        if isinstance(products, dict):
+            lines.append(f"\n📦 {category}:")
+            for product, qty in products.items():
+                if product in PRODUCTS:
+                    price = PRODUCTS[product][0]
+                    line_total = price * qty
+                    total += line_total
+                    name = product.replace('_', ' ')
+                    lines.append(f"   • {name}: {qty} st à {price} kr = {line_total} kr")
+        else:
+            # Fallback för gammal platt struktur
+            product, qty = category, products
+            if product in PRODUCTS:
+                price = PRODUCTS[product][0]
+                line_total = price * qty
+                total += line_total
+                name = product.replace('_', ' ')
+                lines.append(f"• {name}: {qty} st à {price} kr = {line_total} kr")
 
-    lines.append(f"\nUppskattad totalkostnad: {total} kr")
+    lines.append(f"\n💰 Uppskattad totalkostnad: {total} kr")
     lines.append("\nVill du att vi tar fram en officiell offert?")
 
     response_body = f"""Hej!
 
-                Tack för din förfrågan.
+Tack för din förfrågan.
 
-                {chr(10).join(lines)}
+{chr(10).join(lines)}
 
-                Vänliga hälsningar,
-                Bengtssons Trävaror"""
+Vänliga hälsningar,
+Bengtssons Trävaror"""
 
     # 3. Skicka svar (om aktiverat)
     if SEND_EMAILS:
         try:
-            auto = get_autoresponder()
-            auto._send_email(from_email, f"Re: {subject}", response_body)
+            gmail = get_gmail_client()
+            gmail._send_email(from_email, f"Re: {subject}", response_body)
             return f"Materialberäkning hanterad för {from_email}: {len(estimated)} produkter beräknade, totalt {total} kr, svar skickat"
         except Exception as e:
             return f"Kunde inte skicka svar: {e}"
@@ -246,32 +272,32 @@ def handle_meeting_email(from_email: str, subject: str, meeting_time: str = None
     if meeting_time:
         response_body = f"""Hej!
 
-                    Tack för din mötesförfrågan.
+Tack för din mötesförfrågan.
 
-                    Vi har noterat önskad tid: {meeting_time}
+Vi har noterat önskad tid: {meeting_time}
 
-                    Vi återkommer med bekräftelse.
+Vi återkommer med bekräftelse.
 
-                    Vänliga hälsningar,
-                    Bengtssons Trävaror"""
+Vänliga hälsningar,
+Bengtssons Trävaror"""
                         
         result = f"Mötesförfrågan hanterad för {from_email}: Tid noterad ({meeting_time}), bekräftelse skickad"
     else:
         response_body = f"""Hej!
 
-                    Tack för din mötesförfrågan.
+Tack för din mötesförfrågan.
 
-                    Vänligen ange önskad tid så återkommer vi.
+Vänligen ange önskad tid så återkommer vi.
 
-                    Vänliga hälsningar,
-                    Bengtssons Trävaror"""
+Vänliga hälsningar,
+Bengtssons Trävaror"""
                     
         result = f"Mötesförfrågan hanterad för {from_email}: Ingen tid angiven, svar skickat"
 
     if SEND_EMAILS:
         try:
-            auto = get_autoresponder()
-            auto._send_email(from_email, f"Re: {subject}", response_body)
+            gmail = get_gmail_client()
+            gmail._send_email(from_email, f"Re: {subject}", response_body)
             return result
         except Exception as e:
             return f"Kunde inte skicka svar: {e}"
