@@ -17,6 +17,7 @@ from core.complaints import ComplaintsSystem
 from core.autoresponder import GmailClient
 from core.products import PRODUCTS
 from core.test_data import FAKE_INBOX
+from core.conversations import add_message, format_history_for_prompt
 
 # Konfiguration via miljövariabler
 SEND_EMAILS = os.environ.get("SEND_REAL_EMAILS", "false").lower() == "true"
@@ -94,31 +95,40 @@ def handle_support_email(from_email: str, subject: str, body: str) -> str:
     """
     Hanterar ett supportärende/klagomål komplett:
     1. Skapar supportärende
-    2. Genererar AI-svar
+    2. Genererar AI-svar (med konversationshistorik)
     3. Skickar svar till kunden
+    4. Sparar konversationen
 
     Returns:
         Bekräftelse på vad som gjordes
     """
     from core.agents import ComplaintAgent
 
-    # 1. Skapa ärende
+    # 1. Spara kundens meddelande i historik
+    add_message(from_email, "customer", body, subject)
+
+    # 2. Skapa ärende
     email = {"from": from_email, "subject": subject, "body": body}
     complaints_system.log_complaint(email)
 
-    # 2. Generera svar
+    # 3. Hämta tidigare konversation och generera svar
+    history = format_history_for_prompt(from_email)
     agent = ComplaintAgent()
-    response_body = agent.write_response_to_complaint(email)
+    response_body = agent.write_response_to_complaint(email, history)
 
-    # 3. Skicka svar (om aktiverat)
+    # 4. Skicka svar (om aktiverat)
     if SEND_EMAILS:
         try:
             gmail = get_gmail_client()
             gmail._send_email(from_email, f"Re: {subject}", response_body)
+            # Spara vårt svar i historik
+            add_message(from_email, "agent", response_body, f"Re: {subject}")
             return f"Supportärende hanterat för {from_email}: Ärende skapat + svar skickat"
         except Exception as e:
             return f"Supportärende skapat men kunde inte skicka svar: {e}"
     else:
+        # Spara även i dry-run för testning
+        add_message(from_email, "agent", response_body, f"Re: {subject}")
         return f"[DRY-RUN] Supportärende hanterat för {from_email}: Ärende skapat (mail EJ skickat)"
 
 

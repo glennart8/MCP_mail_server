@@ -205,20 +205,20 @@ async def main():
 
     if args.loop:
         interval_minutes = args.loop
-        print(f"🔄 Startar i loop-läge (var {interval_minutes}:e minut)")
-        print("   Tryck Ctrl+C för att avsluta\n")
+        print(f"Startar i loop-läge (var {interval_minutes}:e minut)")
+        print("Tryck Ctrl+C för att avsluta\n")
 
         while True:
             try:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                print(f"\n⏰ [{timestamp}] Kollar mail...")
+                print(f"\n[{timestamp}] Kollar mail...")
                 await run_once()
 
-                print(f"\n💤 Väntar {interval_minutes} minuter till nästa körning...")
+                print(f"\nVäntar {interval_minutes} minuter till nästa körning...")
                 await asyncio.sleep(interval_minutes * 60)
 
             except KeyboardInterrupt:
-                print("\n\n👋 Avslutar...")
+                print("\n\nAvslutar...")
                 break
     else:
         await run_once()

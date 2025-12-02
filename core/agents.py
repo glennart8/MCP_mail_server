@@ -50,14 +50,29 @@ class BaseAgent:
 class ComplaintAgent(BaseAgent):
     """Agent som genererar svar på kundklagomål."""
 
-    def write_response_to_complaint(self, email: dict) -> str:
-        """Genererar ett svar på ett kundklagomål."""
+    def write_response_to_complaint(self, email: dict, history: str = "") -> str:
+        """Genererar ett svar på ett kundklagomål.
+
+        Args:
+            email: Dict med 'from', 'subject', 'body'
+            history: Formaterad konversationshistorik (valfritt)
+        """
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        history_section = ""
+        if history:
+            history_section = f"""
+{history}
+
+VIKTIGT: Använd historiken ovan för att ge ett mer personligt svar.
+Om kunden har kontaktat oss tidigare, referera till det.
+"""
+
         prompt = f"""
         Du är en kontorsassistent som besvarar klagomål via mail.
         Läs följande mail och skapa ett anpassat, trevligt och kort svar.
-
-        Mail:
+        {history_section}
+        Nytt mail:
         Från: {email['from']}
         Ämne: {email['subject']}
         Meddelande: {email['body']}
