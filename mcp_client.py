@@ -126,7 +126,7 @@ class MailAgent:
         priority_str = "HÖG PRIO" if high_priority else "normal"
         print(f"Typ: {mail_type.upper()} ({priority_str})")
 
-        # 2. Om hög prioritet, notifiera chef
+        # 2. Om hög prioritet, notifiera chef och skippa AI-svar
         if high_priority:
             await self.call_tool("notify_manager", {
                 "from_email": email['from'],
@@ -134,6 +134,8 @@ class MailAgent:
                 "body": email['body'],
                 "email_type": mail_type
             })
+            print("    → Eskalerat till chef (inget automatiskt svar)")
+            return  # Chefen hanterar ärendet
 
         # 3. Anropa rätt handler via MCP-tool (servern utför arbete)
         if mail_type == "support":
