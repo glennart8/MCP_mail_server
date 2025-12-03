@@ -59,6 +59,20 @@ En MCP-server (Model Context Protocol) för automatisk e-posthantering hos ett f
     │  • estimate         │
     │  • meeting          │
     │  • other            │
+    │                     │
+    │  Prioritet:         │
+    │  • high_priority    │
+    └─────────┬───────────┘
+              │
+              ▼
+    ┌─────────────────────┐
+    │  HÖG PRIORITET?     │
+    │         │           │
+    │    JA ──┴── NEJ     │
+    │    │                │
+    │    ▼                │
+    │  notify_manager()   │
+    │  (mail till chef)   │
     └─────────┬───────────┘
               │
               ▼
@@ -122,6 +136,7 @@ MCP-Mail-Server/
 | `handle_sales_email` | Hanterar produktförfrågningar: söker, formaterar, skickar | `from_email`, `subject`, `product_query` |
 | `handle_estimate_email` | Hanterar materialberäkningar: AI-beräkning, prissättning, skickar | `from_email`, `subject`, `project_description` |
 | `handle_meeting_email` | Hanterar mötesförfrågningar: noterar tid, skickar bekräftelse | `from_email`, `subject`, `meeting_time` (valfri) |
+| `notify_manager` | Skickar eskalering till chef vid högprioriterade ärenden | `from_email`, `subject`, `body`, `email_type` |
 
 ## Resources (server.py)
 
@@ -178,6 +193,7 @@ GEMINI_API_KEY=din-api-nyckel
 SENDER_EMAIL=din@email.com
 USE_GMAIL=false                # true för att läsa från riktig Gmail
 SEND_REAL_EMAILS=false         # true för att skicka riktiga mail
+MANAGER_EMAIL=chef@foretag.se  # Mail för eskalering av högprioriterade ärenden
 ```
 
 ### Google OAuth (för Gmail-utskick)
@@ -236,3 +252,21 @@ Lägg till i `claude_desktop_config.json`:
 Denna arkitektur följer MCP-standarden där:
 - **Servern** exponerar verktyg (tools) och data (resources)
 - **Klienten** innehåller AI-logiken som fattar beslut
+
+## Prioritering och eskalering
+
+AI:n klassificerar varje mail med en `high_priority`-flagga. Högprioriterade ärenden eskaleras automatiskt till chefen via mail.
+
+### Vad triggar hög prioritet?
+- Kunden hotar med myndigheter, advokat, media
+- Kunden säger att de byter leverantör/konkurrent
+- Återkommande problem ("igen", "tredje gången")
+- Kunden kräver svar från chef/ansvarig
+- Mycket aggressiv ton med hot eller ultimatum
+
+### Vad är INTE hög prioritet?
+- Vanliga klagomål utan hot
+- Kunden är lite irriterad men inte arg
+- Första gången kunden klagar
+
+Vid hög prioritet skickas ett mail till `MANAGER_EMAIL` med ärendeinformation, sedan hanteras mailet som vanligt.
