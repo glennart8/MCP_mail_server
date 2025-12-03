@@ -71,6 +71,7 @@ class MailAgent:
                 Svara med:
                 {{
                     "type": "support" | "sales" | "estimate" | "meeting" | "other",
+                    "high_priority": true | false,
                     "product": "produktnamn om sales",
                     "project_description": "beskrivning om estimate",
                     "meeting_time": "YYYY-MM-DDTHH:MM:SS om meeting"
@@ -81,7 +82,21 @@ class MailAgent:
                 - sales: Frågor om produkter, priser, vill köpa något
                 - estimate: Vill ha materialberäkning för byggprojekt
                 - meeting: Vill boka möte
-                - other: Övrigt"""
+                - other: Övrigt
+
+                high_priority ska ENDAST vara true om:
+                - Kunden hotar med myndigheter, advokat, media, polisanmälan
+                - Kunden explicit säger att de byter leverantör/konkurrent
+                - Det är ett återkommande problem (kunden nämner "igen", "tredje gången", etc)
+                - Kunden kräver svar från chef/ansvarig
+                - Tonen är mycket aggressiv med hot eller ultimatum
+
+                high_priority ska vara false om:
+                - Det bara är ett vanligt klagomål utan hot eller eskalering
+                - Kunden är lite irriterad men inte arg
+                - Det är första gången kunden klagar
+
+                Var restriktiv - de flesta klagomål är INTE high_priority."""
 
         response = self.llm.chat.completions.create(
             model="gemini-2.0-flash",
@@ -107,9 +122,20 @@ class MailAgent:
 
         # 1. AI klassificerar
         mail_type, data = self.classify_email(email)
-        print(f"    → Typ: {mail_type.upper()}")
+        high_priority = data.get("high_priority", False)
+        priority_str = "HÖG PRIO" if high_priority else "normal"
+        print(f"Typ: {mail_type.upper()} ({priority_str})")
 
-        # 2. Anropa rätt handler via MCP-tool (servern utför arbete)
+        # 2. Om hög prioritet, notifiera chef
+        if high_priority:
+            await self.call_tool("notify_manager", {
+                "from_email": email['from'],
+                "subject": email['subject'],
+                "body": email['body'],
+                "email_type": mail_type
+            })
+
+        # 3. Anropa rätt handler via MCP-tool (servern utför arbete)
         if mail_type == "support":
             await self.call_tool("handle_support_email", {
                 "from_email": email['from'],

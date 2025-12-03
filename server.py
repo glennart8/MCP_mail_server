@@ -21,6 +21,7 @@ from core.conversations import add_message, format_history_for_prompt
 # Konfiguration via miljövariabler
 SEND_EMAILS = os.environ.get("SEND_REAL_EMAILS", "false").lower() == "true"
 USE_GMAIL = os.environ.get("USE_GMAIL", "false").lower() == "true"
+MANAGER_EMAIL = os.environ.get("MANAGER_EMAIL", "")
 
 # Skapa MCP-server
 mcp = FastMCP("bengtssons-travaror")
@@ -301,6 +302,53 @@ Bengtssons Trävaror"""
             return f"Kunde inte skicka svar: {e}"
     else:
         return f"[DRY-RUN] {result.replace('skickad', '(mail EJ skickat)')}"
+
+
+@mcp.tool()
+def notify_manager(from_email: str, subject: str, body: str, email_type: str) -> str:
+    """
+    Skickar notifikation till chef om ett högprioriterat ärende.
+
+    Args:
+        from_email: Kundens e-postadress
+        subject: Ärendeämne
+        body: Meddelandetext
+        email_type: Typ av ärende (support/sales/estimate/meeting/other)
+
+    Returns:
+        Bekräftelse på om notifikation skickades
+    """
+    if not MANAGER_EMAIL:
+        return "[VARNING] MANAGER_EMAIL ej konfigurerad - kunde inte eskalera"
+
+    notification_body = f"""HÖGPRIORITERAT ÄRENDE
+
+Typ: {email_type.upper()}
+Från: {from_email}
+Ämne: {subject}
+
+--- Kundens meddelande ---
+{body}
+---
+
+Detta ärende har flaggats som högprioriterat av AI-systemet.
+Vänligen granska och vidta lämplig åtgärd.
+
+/ Bengtssons Trävaror - Automatisk notifikation"""
+
+    if SEND_EMAILS:
+        try:
+            gmail = get_gmail_client()
+            gmail._send_email(
+                MANAGER_EMAIL,
+                f"Hög prioritet: {subject}",
+                notification_body
+            )
+            return f"Eskalering skickad till {MANAGER_EMAIL}"
+        except Exception as e:
+            return f"Kunde inte skicka eskalering: {e}"
+    else:
+        return f"[DRY-RUN] Eskalering till {MANAGER_EMAIL} (mail EJ skickat)"
 
 
 # ==================== MAIN ====================
